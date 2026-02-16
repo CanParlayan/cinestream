@@ -16,11 +16,9 @@ function buildTargetUrl({ serverUrl, username, password, type, id, ext, directUr
   const base = sanitizeBase(serverUrl);
   if (directUrl) {
     const u = new URL(directUrl);
-    // Remove strict origin check for direct URLs to allow redirects
     return u;
   }
   
-  // Force .ts for live/series to match typical Xtream behavior, or keep standard logic
   const safeType = type === 'live' || type === 'series' ? type : 'movie';
   const safeExt = ext || (safeType === 'live' ? 'ts' : 'mp4'); 
   const safeId = String(id || '');
@@ -60,15 +58,18 @@ export default async function handler(req) {
 
     const targetUrl = buildTargetUrl({ serverUrl, username, password, type, id, ext, directUrl, origin });
     
-    // --- CRITICAL FIX START ---
-    // 1. Mimic VLC Media Player exactly.
-    // 2. REMOVE 'Referer' and 'Origin'. Sending these tells the server "I am a website".
+    // --- USER REQUESTED HEADERS START ---
+    // User-Agent: Chrome 145 (Spoofing)
+    // Referer: http://my.splayer.in/ (Whitelist Bypass)
     const headers = { 
-      'User-Agent': 'VLC/3.0.20 LibVLC/3.0.20', 
+      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36',
       'Accept': '*/*',
-      'Connection': 'keep-alive'
+      'Accept-Language': 'en-US,en;q=0.9',
+      'Referer': 'http://my.splayer.in/', 
+      'Connection': 'keep-alive',
+      // Host başlığı 'fetch' tarafından otomatik eklenir, manuel eklersek Vercel hata verebilir.
     };
-    // --- CRITICAL FIX END ---
+    // --- USER REQUESTED HEADERS END ---
 
     if (req.headers.get('range')) {
       headers.Range = req.headers.get('range');
@@ -80,18 +81,17 @@ export default async function handler(req) {
       redirect: 'follow' 
     });
 
-    // If still blocked, return specific error
-    if (upstream.status === 456 || upstream.status === 403) {
-      console.error('Provider Blocked Request:', upstream.status);
+    if (upstream.status === 456) {
+      console.error('Provider Blocked Request (456) - Referer Trick Failed');
       return new Response(JSON.stringify({ 
-        error: 'Provider Blocked (456/403)', 
-        details: 'The IPTV provider rejected the connection. They may be blocking Vercel IPs.' 
-      }), { status: upstream.status });
+        error: 'Provider Blocked (456)', 
+        details: 'Referer spoofing failed. IP blocking might be active.' 
+      }), { status: 456 });
     }
 
     const contentType = upstream.headers.get('content-type') || '';
 
-    // M3U8 Rewriting (HLS)
+    // M3U8 Rewriting
     if (contentType.includes('mpegurl') || targetUrl.pathname.endsWith('.m3u8')) {
       const text = await upstream.text();
       const baseParams = {
