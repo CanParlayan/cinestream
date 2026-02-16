@@ -406,8 +406,11 @@ export const usePlayer = (streamId, movieData) => {
 
     return () => {
       if (playerRef.current) {
-        playerRef.current.dispose();
-        playerRef.current = null;
+        const player = playerRef.current;
+        playerRef.current = null; // Clear ref immediately
+        
+        // Use a small timeout or just dispose
+        player.dispose();
       }
       stopProgressTracking();
       stopPlaybackHealthCheck();

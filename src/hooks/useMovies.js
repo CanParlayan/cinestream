@@ -41,7 +41,6 @@ const normalizeMovie = (stream) => ({
   year: normalizeYear(stream.year || stream.releaseDate || stream.releasedate || ''),
   yearText: String(stream.year || stream.releaseDate || stream.releasedate || ''),
   rating: stream.rating || (stream.rating_5based ? String(Number(stream.rating_5based) * 2) : ''),
-  imdbRating: stream.rating || (stream.rating_5based ? String(Number(stream.rating_5based) * 2) : null),
   imdbData: {
     plot: stream.plot || stream.description || '',
     genre: stream.genre || '',

@@ -111,12 +111,13 @@ const VideoPlayer = ({ streamId, movieData }) => {
       onMouseMove={handleMouseMove}
       onMouseLeave={() => isPlaying && setShowControls(false)}
     >
-      {/* Video Element - Video.js requires specific attributes */}
-      <video
-        ref={videoRef}
-        className="video-js vjs-big-play-centered w-full h-full"
-        onClick={togglePlay}
-      />
+      {/* WRAP THE VIDEO IN A DATA-VJS-PLAYER DIV */}
+      <div data-vjs-player className="w-full h-full">
+        <video
+          ref={videoRef}
+          className="video-js vjs-big-play-centered w-full h-full"
+        />
+      </div>
 
       {/* Loading Overlay */}
       {isLoading && (

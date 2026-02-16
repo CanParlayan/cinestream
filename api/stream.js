@@ -1,5 +1,9 @@
 const ALLOWED_PROTOCOLS = new Set(['http:', 'https:']);
 
+export const config = {
+  runtime: 'edge',
+};
+
 function sanitizeBase(serverUrl) {
   const parsed = new URL(serverUrl);
   if (!ALLOWED_PROTOCOLS.has(parsed.protocol)) {
@@ -20,13 +24,13 @@ function buildTargetUrl({ serverUrl, username, password, type, id, ext, directUr
   }
 
   const safeType = type === 'live' || type === 'series' ? type : 'movie';
-  const safeExt = ext || (safeType === 'live' ? 'm3u8' : 'mp4');
+  const safeExt = ext || (safeType === 'live' ? 'mp4' : 'm3u8');
   const safeId = String(id || '');
   if (!safeId) {
     throw new Error('Missing id');
   }
 
-  return new URL(`/${safeType}/${encodeURIComponent(username)}/${encodeURIComponent(password)}/${encodeURIComponent(safeId)}.${encodeURIComponent(safeExt)}`, base.origin);
+  return new URL(`/${safeType}/${encodeURIComponent(username)}/${encodeURIComponent(password)}/${encodeURIComponent(safeId)}.mp4`, base.origin);
 }
 
 function toProxyUrl(req, baseParams, line) {
@@ -41,94 +45,69 @@ function toProxyUrl(req, baseParams, line) {
   return `${baseParams.basePath}?${p.toString()}`;
 }
 
-export default async function handler(req, res) {
-  if (req.method === 'OPTIONS') {
-    res.status(200).end();
-    return;
-  }
+export default async function handler(req) {
   try {
-    const {
-      serverUrl,
-      username,
-      password,
-      type,
-      id,
-      ext,
-      directUrl,
-      origin,
-    } = req.query || {};
+    const { searchParams } = new URL(req.url);
+    const serverUrl = searchParams.get('serverUrl');
+    const username = searchParams.get('username');
+    const password = searchParams.get('password');
+    const type = searchParams.get('type');
+    const id = searchParams.get('id');
+    const ext = searchParams.get('ext');
+    const directUrl = searchParams.get('directUrl');
+    const origin = searchParams.get('origin');
 
     if (!serverUrl || !username || !password) {
-      res.status(400).json({ error: 'Missing required query params: serverUrl, username, password' });
-      return;
+      return new Response(JSON.stringify({ error: 'Missing params' }), { status: 400 });
     }
 
     const targetUrl = buildTargetUrl({ serverUrl, username, password, type, id, ext, directUrl, origin });
-    const headers = { Accept: '*/*' };
-    if (req.headers.range) {
-      headers.Range = req.headers.range;
+    
+    const headers = { 
+      'Accept': '*/*',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36...',
+      'Referer': serverUrl,
+      'Origin': new URL(serverUrl).origin
+    };
+
+    if (req.headers.get('range')) {
+      headers.Range = req.headers.get('range');
     }
 
-    const upstream = await fetch(targetUrl.toString(), { method: 'GET', headers });
+    const upstream = await fetch(targetUrl.toString(), { 
+      method: 'GET', 
+      headers,
+      redirect: 'follow' 
+    });
+
+    // For M3U8 rewriting
     const contentType = upstream.headers.get('content-type') || '';
-
-    if (contentType.includes('application/vnd.apple.mpegurl') || contentType.includes('application/x-mpegurl') || targetUrl.pathname.endsWith('.m3u8')) {
+    if (contentType.includes('mpegurl') || targetUrl.pathname.endsWith('.m3u8')) {
       const text = await upstream.text();
-      const basePath = '/api/stream';
-      const baseParams = {
-        serverUrl,
-        username,
-        password,
-        origin: targetUrl.origin,
-        targetUrl,
-        basePath,
-      };
+      const rewritten = text.split('\n').map(line => {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) return line;
+        // Re-use your toProxyUrl logic here, adjusted for URL objects
+        return toProxyUrl(req, { serverUrl, username, password, origin: targetUrl.origin, targetUrl, basePath: '/api/stream' }, trimmed);
+      }).join('\n');
 
-      const rewritten = text
-        .split('\n')
-        .map((line) => {
-          const trimmed = line.trim();
-          if (!trimmed || trimmed.startsWith('#')) return line;
-          return toProxyUrl(req, baseParams, trimmed);
-        })
-        .join('\n');
-
-      res.status(upstream.status);
-      res.setHeader('Content-Type', 'application/vnd.apple.mpegurl; charset=utf-8');
-      res.setHeader('Cache-Control', 'no-store');
-      res.send(rewritten);
-      return;
+      return new Response(rewritten, {
+        status: upstream.status,
+        headers: { 'Content-Type': 'application/vnd.apple.mpegurl' }
+      });
     }
 
-    res.status(upstream.status);
-    const passthroughHeaders = [
-      'content-type',
-      'content-length',
-      'accept-ranges',
-      'content-range',
-      'cache-control',
-    ];
-
-    passthroughHeaders.forEach((h) => {
-      const v = upstream.headers.get(h);
-      if (v) {
-        res.setHeader(h, v);
+    // Direct stream passthrough
+    return new Response(upstream.body, {
+      status: upstream.status,
+      headers: {
+        'Content-Type': upstream.headers.get('content-type'),
+        'Content-Length': upstream.headers.get('content-length'),
+        'Accept-Ranges': 'bytes',
       }
     });
 
-    if (!upstream.body) {
-      res.end();
-      return;
-    }
-
-    const reader = upstream.body.getReader();
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      res.write(Buffer.from(value));
-    }
-    res.end();
   } catch (error) {
-    res.status(500).json({ error: 'Stream proxy failed', message: error?.message || 'Unknown error' });
+    return new Response(JSON.stringify({ error: error.message }), { status: 500 });
   }
 }
