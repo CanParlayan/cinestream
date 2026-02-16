@@ -1,7 +1,7 @@
 const ALLOWED_PROTOCOLS = new Set(['http:', 'https:']);
 
 export const config = {
-  runtime: 'edge', // Keep Edge runtime for performance
+  runtime: 'edge',
 };
 
 function sanitizeBase(serverUrl) {
@@ -16,12 +16,15 @@ function buildTargetUrl({ serverUrl, username, password, type, id, ext, directUr
   const base = sanitizeBase(serverUrl);
   if (directUrl) {
     const u = new URL(directUrl);
-    if (origin && u.origin !== origin) throw new Error('Invalid direct URL origin');
+    // Remove strict origin check for direct URLs to allow redirects
     return u;
   }
+  
+  // Force .ts for live/series to match typical Xtream behavior, or keep standard logic
   const safeType = type === 'live' || type === 'series' ? type : 'movie';
-  const safeExt = ext || (safeType === 'live' ? 'ts' : 'mp4');
+  const safeExt = ext || (safeType === 'live' ? 'ts' : 'mp4'); 
   const safeId = String(id || '');
+  
   if (!safeId) throw new Error('Missing id');
 
   return new URL(`/${safeType}/${encodeURIComponent(username)}/${encodeURIComponent(password)}/${encodeURIComponent(safeId)}.${safeExt}`, base.origin);
@@ -57,19 +60,18 @@ export default async function handler(req) {
 
     const targetUrl = buildTargetUrl({ serverUrl, username, password, type, id, ext, directUrl, origin });
     
-    // UPDATED HEADERS: Mimic a real VLC/Player request to avoid 456 errors
+    // --- CRITICAL FIX START ---
+    // 1. Mimic VLC Media Player exactly.
+    // 2. REMOVE 'Referer' and 'Origin'. Sending these tells the server "I am a website".
     const headers = { 
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'User-Agent': 'VLC/3.0.20 LibVLC/3.0.20', 
       'Accept': '*/*',
-      'Accept-Language': 'en-US,en;q=0.9',
-      'Referer': `${new URL(serverUrl).origin}/`,
-      'Origin': new URL(serverUrl).origin
+      'Connection': 'keep-alive'
     };
+    // --- CRITICAL FIX END ---
 
-    // Forward the Range header for seeking in mp4 files
-    const range = req.headers.get('range');
-    if (range) {
-      headers['Range'] = range;
+    if (req.headers.get('range')) {
+      headers.Range = req.headers.get('range');
     }
 
     const upstream = await fetch(targetUrl.toString(), { 
@@ -78,13 +80,18 @@ export default async function handler(req) {
       redirect: 'follow' 
     });
 
-    if (upstream.status === 456) {
-      return new Response(JSON.stringify({ error: 'Provider blocked request (456)' }), { status: 456 });
+    // If still blocked, return specific error
+    if (upstream.status === 456 || upstream.status === 403) {
+      console.error('Provider Blocked Request:', upstream.status);
+      return new Response(JSON.stringify({ 
+        error: 'Provider Blocked (456/403)', 
+        details: 'The IPTV provider rejected the connection. They may be blocking Vercel IPs.' 
+      }), { status: upstream.status });
     }
 
     const contentType = upstream.headers.get('content-type') || '';
 
-    // Handle M3U8 Rewriting for Edge
+    // M3U8 Rewriting (HLS)
     if (contentType.includes('mpegurl') || targetUrl.pathname.endsWith('.m3u8')) {
       const text = await upstream.text();
       const baseParams = {
@@ -108,7 +115,7 @@ export default async function handler(req) {
       });
     }
 
-    // Direct Stream Passthrough (Edge handles ReadableStream automatically)
+    // Direct Stream Passthrough
     return new Response(upstream.body, {
       status: upstream.status,
       headers: {
@@ -116,7 +123,8 @@ export default async function handler(req) {
         'Content-Length': upstream.headers.get('content-length') || '',
         'Accept-Ranges': 'bytes',
         'Content-Range': upstream.headers.get('content-range') || '',
-        'Access-Control-Allow-Origin': '*'
+        'Access-Control-Allow-Origin': '*',
+        'Cache-Control': 'no-cache'
       }
     });
 
