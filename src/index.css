@@ -1,0 +1,127 @@
+@import 'video.js/dist/video-js.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+@layer base {
+  body {
+    @apply bg-cinema-darker text-white font-body;
+    position: relative;
+  }
+
+  /* Film grain overlay effect */
+  body::before {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.05'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 9999;
+    opacity: 0.4;
+  }
+
+  /* Scrollbar styling */
+  ::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-cinema-dark;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-cinema-accent rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-red-600;
+  }
+}
+
+@layer components {
+  .glass-card {
+    @apply bg-white/5 backdrop-blur-md border border-white/10;
+  }
+
+  .gradient-text {
+    @apply bg-gradient-to-r from-cinema-gold to-cinema-accent bg-clip-text text-transparent;
+  }
+
+  .hover-lift {
+    @apply transition-all duration-300 hover:transform hover:-translate-y-2 hover:shadow-2xl;
+  }
+
+  .cinema-button {
+    @apply px-6 py-3 bg-cinema-accent hover:bg-red-700 text-white font-semibold rounded-lg transition-all duration-300 transform hover:scale-105 active:scale-95;
+  }
+
+  .progress-bar {
+    @apply relative h-1 bg-white/20 rounded-full overflow-hidden;
+  }
+
+  .progress-fill {
+    @apply absolute left-0 top-0 h-full bg-gradient-to-r from-cinema-accent to-cinema-gold transition-all duration-300;
+  }
+}
+
+/* Custom animations */
+@keyframes shimmer {
+  0% {
+    background-position: -1000px 0;
+  }
+  100% {
+    background-position: 1000px 0;
+  }
+}
+
+.loading-shimmer {
+  animation: shimmer 2s infinite;
+  background: linear-gradient(to right, #14141f 0%, #1f1f2e 20%, #14141f 40%, #14141f 100%);
+  background-size: 1000px 100%;
+}
+
+/* Video player custom styles */
+video {
+  @apply w-full h-full object-contain;
+}
+
+/* Video.js player customization */
+.video-js {
+  width: 100% !important;
+  height: 100% !important;
+  background-color: #000;
+}
+
+.video-js .vjs-big-play-button {
+  display: none; /* We use custom controls */
+}
+
+.video-js .vjs-control-bar {
+  display: none; /* We use custom controls */
+}
+
+.vjs-tech {
+  object-fit: contain;
+}
+
+.video-controls {
+  @apply absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 to-transparent p-4 transition-opacity duration-300;
+}
+
+/* Rating badge */
+.rating-badge {
+  @apply absolute top-2 right-2 bg-black/80 backdrop-blur-sm px-2 py-1 rounded-md flex items-center gap-1 text-sm font-semibold;
+}
+
+/* Continue watching progress */
+.watch-progress {
+  @apply absolute bottom-0 left-0 right-0 h-1 bg-white/20;
+}
+
+.watch-progress-fill {
+  @apply h-full bg-gradient-to-r from-cinema-accent to-cinema-gold;
+}
+
